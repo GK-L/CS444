@@ -13,6 +13,7 @@ from torchvision import transforms
 import losses
 import logging
 import time
+from torch.optim.lr_scheduler import LinearLR, ChainedScheduler
 
 FLAGS = flags.FLAGS
 flags.DEFINE_float('lr', 1e-4, 'Learning Rate')
@@ -76,9 +77,10 @@ def main(_):
                                 weight_decay=FLAGS.weight_decay)
     
     milestones = [int(x) for x in FLAGS.lr_step]
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+    origin_scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, milestones=milestones, gamma=0.1)
     
+    scheduler = ChainedScheduler([LinearLR(optimizer, start_factor = 0.0001, total_iters = 2000), origin_scheduler])
     optimizer.zero_grad()
     dataloader_iter = None
     
@@ -103,13 +105,14 @@ def main(_):
         outs = model(image)
         pred_clss, pred_bboxes, anchors = get_detections(outs)
         gt_clss, gt_bboxes = compute_targets(anchors, cls, bbox)
-        
+
         pred_clss = pred_clss.sigmoid()
-        classification_loss, regression_loss = lossFunc(pred_clss, pred_bboxes,
-                                                        anchors, gt_clss,
-                                                        gt_bboxes)
+
+        classification_loss, regression_loss = lossFunc(pred_clss, pred_bboxes, anchors, gt_clss, gt_bboxes)
+    
         cls_loss = classification_loss.mean()
         bbox_loss = regression_loss.mean()
+
         total_loss = cls_loss + bbox_loss
         
         if np.isnan(total_loss.item()):
@@ -121,6 +124,7 @@ def main(_):
             break
         
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = 1.0)
 
         optimizer.step()
         optimizer.zero_grad()

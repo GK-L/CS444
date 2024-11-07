@@ -165,4 +165,4 @@ def nms(bboxes, scores, threshold=0.5):
         iou = compute_bbox_iou(bboxes[indices[0]].unsqueeze(0), bboxes[indices[1:]]).squeeze()
         indices = indices[1:][(iou < threshold).nonzero(as_tuple=True)[0]]
         
-    return torch.tensor(keep)
+    return torch.tensor(keep, dtype=torch.int64)

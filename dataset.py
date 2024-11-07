@@ -9,7 +9,7 @@ from PIL import ImageOps, Image
 import numpy as np
 import json
 import torchvision as tv
-from torchvision.transforms import v2
+from torchvision.transforms import v2 as transforms
 from torch.utils.data.sampler import Sampler
 import random
 from io import BytesIO
@@ -20,9 +20,35 @@ import skimage.transform
 import skimage.color
 import skimage
 from absl import app, flags
+from torchvision.transforms import Compose, RandomHorizontalFlip, ColorJitter, Resize, ToTensor, Normalize, RandomResizedCrop, RandomRotation
+
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string('coco_dir', './coco-animal', 'Directory with coco data')
+
+class Augmentations(object):
+    def __init__(self, min_side=800, max_side=1333):
+        self.transforms  = transforms.Compose([
+            transforms.RandomIoUCrop(),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.Resize((min_side, min_side)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+    def __call__(self, sample):
+        image, bboxes, cls, is_crowd, image_id = sample
+        target = {
+            'boxes': bboxes,
+            'labels': cls,
+            'iscrowd': is_crowd
+        }
+        image, target = self.transforms(image, target)
+        bboxes = target['boxes']
+        cls = target['labels']
+        is_crowd = target['iscrowd']
+        return image, bboxes, cls, is_crowd, image_id
 
 class CocoDataset(Dataset):
     def __init__(self, split='train', min_sizes=[800], 
@@ -46,7 +72,7 @@ class CocoDataset(Dataset):
 
         self.rng = np.random.RandomState(seed=seed)
         self.min_sizes = min_sizes
-        self.transform = transform
+        self.transform = transform if transform else Augmentations()
         self.preload_images = preload_images
         if self.preload_images:
             logging.info(f'Preloading {split} Images Strings into memory')
@@ -107,7 +133,7 @@ class CocoDataset(Dataset):
             is_crowd: (N) tensor of booleans indicating whether the bounding box is a crowd
         """
         image, bboxes, cls, is_crowd, image_id, resize_factor = self._get_annotation(index)
-
+        
         bboxes = bboxes[is_crowd == 0, :]
         cls = cls[is_crowd == 0]
         is_crowd = is_crowd[is_crowd == 0]
